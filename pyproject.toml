@@ -1,0 +1,12 @@
+[project]
+name = "underwater-qc"
+version = "0.1.0"
+description = "Automated focus/subject-distance quality control filter for underwater photos"
+requires-python = ">=3.9"
+dependencies = [
+    "opencv-contrib-python",
+    "numpy",
+]
+
+[tool.uv]
+package = false
