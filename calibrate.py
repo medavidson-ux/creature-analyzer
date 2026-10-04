@@ -4,6 +4,7 @@
 # dependencies = [
 #     "opencv-contrib-python",
 #     "numpy",
+#     "pillow",
 # ]
 # ///
 """
@@ -29,25 +30,18 @@ import argparse
 import os
 import statistics as stats
 
-from qc_pipeline import (
-    localize_subject, combined_sharpness_score, combined_distance_score
-)
-import cv2
+from qc_pipeline import IMAGE_EXTS, METRIC_KEYS, load_image, measure
 
 
 def collect_metrics(folder):
-    exts = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp")
     rows = []
     for f in sorted(os.listdir(folder)):
-        if not f.lower().endswith(exts):
+        if not f.lower().endswith(IMAGE_EXTS):
             continue
-        img = cv2.imread(os.path.join(folder, f))
+        img = load_image(os.path.join(folder, f))
         if img is None:
             continue
-        roi = localize_subject(img)
-        sharp = combined_sharpness_score(img, roi)
-        dist = combined_distance_score(img, roi)
-        rows.append({**sharp, **dist, "filename": f})
+        rows.append({**measure(img), "filename": f})
     return rows
 
 
@@ -67,14 +61,11 @@ def main():
     parser.add_argument("--reject", required=True, help="Folder of bad photos")
     args = parser.parse_args()
 
-    keys = ["laplacian", "tenengrad", "fft_ratio",
-            "haze", "coverage", "local_contrast", "saturation"]
-
     keep_rows = collect_metrics(args.keep)
     reject_rows = collect_metrics(args.reject)
 
-    summarize("KEEP", keep_rows, keys)
-    summarize("REJECT", reject_rows, keys)
+    summarize("KEEP", keep_rows, METRIC_KEYS)
+    summarize("REJECT", reject_rows, METRIC_KEYS)
 
     print("\nSuggested approach: for each metric, set the *_bounds tuple in "
           "QualityControl() so the low end sits near the REJECT group's "

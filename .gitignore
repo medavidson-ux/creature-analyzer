@@ -12,3 +12,7 @@ wheels/
 
 # secrets
 .env
+
+# generated outputs
+test_images/
+*.csv

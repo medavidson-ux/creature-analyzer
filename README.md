@@ -13,6 +13,8 @@ Automated backend filter that approves/rejects underwater photos based on:
   manually-sorted keep/reject photos, so you can set real thresholds.
 - `make_test_images.py` — generates synthetic test images (sharp/close,
   blurry, sharp-but-distant) used to sanity-check the pipeline logic.
+- `test_pipeline.py` — asserts the three synthetic verdicts (and reasons),
+  plus contrast-invariance of the focus score. Run: `uv run --group dev pytest`.
 - `pyproject.toml` — optional project-style dependency spec, if you'd
   rather use `uv sync` than run the scripts standalone.
 
@@ -45,11 +47,38 @@ uv run python qc_pipeline.py /path/to/photos --out results.csv
 ```
 
 Each image prints an APPROVE/REJECT verdict with sharpness/distance scores
-(0–1) and, on rejection, the specific reason. Full results also land in
-the CSV.
+(0–1) and, on rejection, the specific reason. The CSV also holds every raw
+metric and the subject ROI, which is what you need for calibration.
+
+## Burst grouping (best-of-group selection)
+
+Photos of the same subject taken moments apart are grouped, and only the
+best frame of each group is **selected**; the other passing frames are
+marked as duplicates (`DUP #n`) instead of all being approved.
+
+- **Grouping** uses EXIF capture time (including sub-seconds), sorted and
+  chained: a photo joins the previous one's group if taken within
+  `--max-gap` seconds (default 5) *and* the scene still looks the same
+  (`--min-similarity`, default 0.7, on a brightness-normalized thumbnail —
+  robust to strobe misfires and small camera moves, splits when you turn to
+  a new subject). The default errs toward splitting: a false split keeps one
+  extra frame; a false merge would discard a different subject.
+- **Ranking** within a group is `0.65 × sharpness + 0.35 × distance`.
+  Comparing frames of the same scene is far more reliable than absolute
+  thresholds, since water, light and subject are held constant.
+- **Selection** still requires passing the absolute thresholds, so a burst
+  where every frame is bad selects nothing. `--keep-per-group N` keeps the
+  top N.
+- Photos without EXIF time (e.g. edited exports) are judged individually.
+  `--no-groups` disables grouping entirely.
+
+The CSV gains `selected`, `group`, `group_rank` and `capture_time` columns.
 
 ## How it works
 
+0. **Resize** — images are downscaled to a 1600px long edge first. All
+   metrics are per-pixel, so without this the same photo scores very
+   differently from a 20MP vs a 6MP camera.
 1. **Despeckle** — a light median filter suppresses backscatter
    (particulates lit by strobe) before sharpness is measured, so floating
    debris doesn't fake out the focus metric.
@@ -61,13 +90,19 @@ the CSV.
    nothing scores well.
 3. **Sharpness** — three focus measures computed on the subject region
    only (not the whole frame): variance-of-Laplacian, Tenengrad gradient
-   magnitude, and an FFT high-frequency-energy ratio (most robust to
-   backscatter speckle).
+   energy, and an FFT high-frequency ratio. All three are
+   **contrast-normalized**: water strips contrast with distance, and raw
+   gradient energy can't tell "low contrast" from "out of focus". The FFT
+   ratio is weighted lowest because it rises with sensor noise/backscatter.
 4. **Distance/prominence** — four proxies, since there's no depth data:
-   - dark-channel haze estimate (more water column = hazier)
+   - underwater dark-channel haze (UDCP: min of blue/green only — the
+     classic land-haze version includes red, which water absorbs, so it
+     reads distant water as "clear")
    - frame coverage (subject bounding-box area / image area)
    - local contrast (water flattens contrast with distance)
-   - saturation (color also decays with distance)
+   - red retention (red is absorbed first with distance). HSV saturation
+     is reported but not scored: blue water is highly saturated, so it
+     rises with distance rather than falling.
 5. **Combine** — each group is normalized and weighted into a 0–1 score;
    both must clear their thresholds to approve.
 

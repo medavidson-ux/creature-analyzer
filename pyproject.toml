@@ -6,7 +6,11 @@ requires-python = ">=3.9"
 dependencies = [
     "opencv-contrib-python",
     "numpy",
+    "pillow",
 ]
 
 [tool.uv]
 package = false
+
+[dependency-groups]
+dev = ["pytest"]
